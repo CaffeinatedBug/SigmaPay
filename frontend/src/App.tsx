@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import SigmaPayWidget from './components/SigmaPayWidget'
 import WalletConnect from './components/WalletConnect'
+import Footer from './components/Footer'
 import { WalletContext } from './utils/payment'
 import { Zap } from 'lucide-react'
 
@@ -15,7 +16,7 @@ function App() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl" />
@@ -44,25 +45,12 @@ function App() {
       </header>
       
       {/* Main content */}
-      <main className="relative z-10 flex items-center justify-center min-h-[calc(100vh-4rem)] p-4">
+      <main className="relative z-10 flex-1 flex items-center justify-center p-4">
         <SigmaPayWidget externalWalletContext={walletContext} />
       </main>
 
       {/* Footer */}
-      <footer className="relative z-10 py-4 text-center">
-        <p className="text-gray-600 text-xs">
-          Built on{' '}
-          <a 
-            href="https://ergoplatform.org" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-orange-500 hover:text-orange-400 transition-colors"
-          >
-            Ergo Blockchain
-          </a>
-          {' '}• Non-custodial & Secure
-        </p>
-      </footer>
+      <Footer />
     </div>
   )
 }
