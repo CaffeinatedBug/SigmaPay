@@ -9,16 +9,9 @@ export default {
       colors: {
         // Ergo Orange palette
         ergo: {
-          50: '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          300: '#fdba74',
-          400: '#fb923c',
-          500: '#f97316',
-          600: '#ff5e18', // Primary Ergo Orange
-          700: '#c2410c',
-          800: '#9a3412',
-          900: '#7c2d12',
+          main: '#ff5e18', // The standard Ergo Orange
+          dark: '#242424', // Dark Gunmetal for backgrounds
+          light: '#f5f5f5', // Off-white for cards
         },
       },
       fontFamily: {

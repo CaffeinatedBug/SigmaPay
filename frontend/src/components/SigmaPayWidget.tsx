@@ -19,9 +19,7 @@ import { Wallet, CheckCircle, Loader, AlertTriangle, ExternalLink, X, Zap } from
 import {
   getWalletContext,
   sendErgoPayment,
-  disconnectWallet,
   isWalletConnected,
-  isNautilusInstalled,
   formatAddress,
   getExplorerTxUrl,
   WalletContext,
@@ -78,10 +76,19 @@ interface ErrorResponse {
 }
 
 // ===========================================
+// Props Interface
+// ===========================================
+
+interface SigmaPayWidgetProps {
+  /** External wallet context from WalletConnect component */
+  externalWalletContext?: WalletContext | null;
+}
+
+// ===========================================
 // Component
 // ===========================================
 
-export const SigmaPayWidget: React.FC = () => {
+export const SigmaPayWidget: React.FC<SigmaPayWidgetProps> = ({ externalWalletContext }) => {
   // State management
   const [state, setState] = useState<PaymentState>('idle');
   const [walletContext, setWalletContext] = useState<WalletContext | null>(null);
@@ -90,8 +97,33 @@ export const SigmaPayWidget: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [verificationResult, setVerificationResult] = useState<VerificationResponse | null>(null);
 
-  // Check wallet connection on mount
+  // Sync with external wallet context from WalletConnect component
   useEffect(() => {
+    if (externalWalletContext) {
+      setWalletContext(externalWalletContext);
+      // Only switch to ready if we're in idle or connecting state
+      if (state === 'idle' || state === 'connecting_wallet') {
+        setState('ready');
+      }
+    } else if (externalWalletContext === null) {
+      // Wallet was disconnected externally
+      setWalletContext(null);
+      // Only reset to idle if we're not in a transaction flow
+      if (state !== 'signing' && state !== 'verifying_backend') {
+        setAmount('');
+        setTxId('');
+        setVerificationResult(null);
+        setErrorMessage('');
+        setState('idle');
+      }
+    }
+  }, [externalWalletContext, state]);
+
+  // Check wallet connection on mount (fallback if no external context provided)
+  useEffect(() => {
+    // Skip if external context is being managed
+    if (externalWalletContext !== undefined) return;
+
     const checkConnection = async () => {
       if (await isWalletConnected()) {
         try {
@@ -105,47 +137,7 @@ export const SigmaPayWidget: React.FC = () => {
       }
     };
     checkConnection();
-  }, []);
-
-  /**
-   * Connects to Nautilus wallet
-   */
-  const handleConnectWallet = useCallback(async () => {
-    // Check if Nautilus is installed
-    if (!isNautilusInstalled()) {
-      setErrorMessage('Nautilus wallet not found. Please install it from nautilus.io');
-      setState('error');
-      return;
-    }
-
-    setState('connecting_wallet');
-    setErrorMessage('');
-
-    try {
-      const context = await getWalletContext();
-      setWalletContext(context);
-      setState('ready');
-    } catch (error) {
-      const message = error instanceof WalletError 
-        ? error.message 
-        : 'Failed to connect wallet';
-      setErrorMessage(message);
-      setState('error');
-    }
-  }, []);
-
-  /**
-   * Disconnects wallet and resets state
-   */
-  const handleDisconnect = useCallback(async () => {
-    await disconnectWallet();
-    setWalletContext(null);
-    setAmount('');
-    setTxId('');
-    setVerificationResult(null);
-    setErrorMessage('');
-    setState('idle');
-  }, []);
+  }, [externalWalletContext]);
 
   /**
    * Verifies the transaction with the backend
@@ -271,24 +263,21 @@ export const SigmaPayWidget: React.FC = () => {
         Connect Your Wallet
       </h3>
       <p className="text-gray-500 text-sm mb-6">
-        Connect your Nautilus wallet to make a payment
+        Use the <span className="font-semibold text-orange-600">Connect Wallet</span> button in the top right to get started
       </p>
-      <button
-        onClick={handleConnectWallet}
-        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
-      >
-        <Wallet className="w-5 h-5" />
-        Connect Nautilus Wallet
-      </button>
-      <p className="text-gray-400 text-xs mt-4">
+      <div className="flex items-center justify-center gap-2 text-gray-400">
+        <div className="w-2 h-2 bg-gray-300 rounded-full animate-pulse" />
+        <span className="text-sm">Waiting for wallet connection...</span>
+      </div>
+      <p className="text-gray-400 text-xs mt-6">
         Don't have Nautilus?{' '}
         <a 
-          href="https://nautilus.io" 
+          href="https://chrome.google.com/webstore/detail/nautilus-wallet/gjlmehlldlphhljhpnlddaodbjjcchai" 
           target="_blank" 
           rel="noopener noreferrer"
           className="text-orange-600 hover:text-orange-700 underline"
         >
-          Download here
+          Install the extension
         </a>
       </p>
     </div>
@@ -364,14 +353,6 @@ export const SigmaPayWidget: React.FC = () => {
       >
         <Zap className="w-5 h-5" />
         Pay with Ergo
-      </button>
-
-      {/* Disconnect link */}
-      <button
-        onClick={handleDisconnect}
-        className="w-full mt-3 text-gray-500 hover:text-gray-700 text-sm py-2 transition-colors"
-      >
-        Disconnect Wallet
       </button>
     </div>
   );
