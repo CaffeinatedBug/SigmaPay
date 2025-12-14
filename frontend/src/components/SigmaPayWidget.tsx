@@ -30,7 +30,12 @@ import {
   Lock,
   Copy,
   ExternalLink,
-  Check
+  Check,
+  Clock,
+  FileText,
+  Receipt,
+  AlertCircle,
+  Zap
 } from 'lucide-react';
 import axios from 'axios';
 import { useWallet } from '../context/WalletContext';
@@ -63,7 +68,7 @@ const MIN_PAYMENT_AMOUNT = 0.001;
 // ===========================================
 
 /** Supported payment assets */
-type PaymentAsset = "ERG" | "SigUSD";
+export type PaymentAsset = "ERG" | "SigUSD";
 
 /** Payment flow status */
 type PaymentStatus = 'idle' | 'signing' | 'verifying' | 'success' | 'error';
@@ -92,6 +97,33 @@ interface PriceData {
   SigUSD: number;
   lastUpdated: Date;
 }
+
+/**
+ * Payment Intent - Merchant-defined payment request
+ * When provided, locks all payment parameters (amount, asset, recipient)
+ */
+export interface PaymentIntent {
+  intentId: string;
+  merchantName: string;
+  asset: PaymentAsset;
+  amount: number;
+  recipientAddress: string;
+  expiresAt?: number; // Unix timestamp (optional)
+}
+
+/** Invoice state for tracking expiry */
+interface InvoiceState {
+  expired: boolean;
+  timeRemaining: number | null; // seconds remaining
+}
+
+/** Widget props */
+interface SigmaPayWidgetProps {
+  paymentIntent?: PaymentIntent;
+}
+
+/** Estimated network fee in ERG */
+const ESTIMATED_NETWORK_FEE = 0.0011;
 
 // ===========================================
 // Asset Configuration
@@ -491,20 +523,198 @@ const RecipientDisplay: React.FC<RecipientDisplayProps> = ({
   );
 };
 
+/**
+ * Invoice Header Component
+ * Displays payment intent details in a professional invoice format
+ */
+interface InvoiceHeaderProps {
+  intent: PaymentIntent;
+  invoiceState: InvoiceState;
+}
+
+const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({ intent, invoiceState }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-6 p-4 rounded-xl bg-gradient-to-br from-ergo-main/10 to-purple-600/10 border border-ergo-main/20"
+    >
+      {/* Invoice Badge */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Receipt className="w-4 h-4 text-ergo-main" />
+          <span className="text-xs font-semibold text-ergo-main uppercase tracking-wider">
+            SigmaPay Invoice
+          </span>
+        </div>
+        {invoiceState.expired ? (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-red-500/20 border border-red-500/30">
+            <AlertCircle className="w-3 h-3 text-red-400" />
+            <span className="text-xs font-medium text-red-400">Expired</span>
+          </div>
+        ) : invoiceState.timeRemaining !== null && (
+          <ExpiryCountdown timeRemaining={invoiceState.timeRemaining} />
+        )}
+      </div>
+      
+      {/* Invoice Details */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-gray-500">Merchant</span>
+          <span className="text-sm font-medium text-white">{intent.merchantName}</span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-gray-500">Invoice ID</span>
+          <span className="text-sm font-mono text-gray-300">{intent.intentId}</span>
+        </div>
+        <div className="h-px bg-white/10 my-2" />
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-gray-500">Amount Due</span>
+          <span className="text-lg font-bold text-white">
+            {intent.amount} {intent.asset}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+/**
+ * Expiry Countdown Component
+ * Shows remaining time with visual urgency
+ */
+interface ExpiryCountdownProps {
+  timeRemaining: number; // seconds
+}
+
+const ExpiryCountdown: React.FC<ExpiryCountdownProps> = ({ timeRemaining }) => {
+  // Format time as MM:SS
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const formatted = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  
+  // Urgency levels
+  const isUrgent = timeRemaining < 60; // Less than 1 minute
+  const isWarning = timeRemaining < 300; // Less than 5 minutes
+  
+  const colorClass = isUrgent 
+    ? 'text-red-400 bg-red-500/20 border-red-500/30' 
+    : isWarning 
+      ? 'text-amber-400 bg-amber-500/20 border-amber-500/30'
+      : 'text-green-400 bg-green-500/20 border-green-500/30';
+  
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border ${colorClass}`}>
+      <Clock className={`w-3 h-3 ${isUrgent ? 'animate-pulse' : ''}`} />
+      <span className="text-xs font-mono font-medium">{formatted}</span>
+    </div>
+  );
+};
+
+/**
+ * Transaction Preview Component
+ * Shows exactly what will be signed - Non-custodial proof
+ */
+interface TransactionPreviewProps {
+  asset: PaymentAsset;
+  amount: string | number;
+  recipientAddress: string;
+  merchantName?: string;
+  networkFee?: number;
+}
+
+const TransactionPreview: React.FC<TransactionPreviewProps> = ({
+  asset,
+  amount,
+  recipientAddress,
+  merchantName = "Merchant",
+  networkFee = ESTIMATED_NETWORK_FEE
+}) => {
+  // Shorten address for display
+  const shortAddress = recipientAddress.length > 16 
+    ? `${recipientAddress.slice(0, 6)}…${recipientAddress.slice(-4)}`
+    : recipientAddress;
+  
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <FileText className="w-4 h-4 text-gray-500" />
+        <label className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
+          Transaction Preview
+        </label>
+      </div>
+      
+      <div className="p-4 rounded-xl bg-black/30 border border-white/10 space-y-3">
+        {/* Amount Being Sent */}
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-gray-500">You will send</span>
+          <span className="text-base font-semibold text-white">
+            {amount} {asset}
+          </span>
+        </div>
+        
+        {/* Network Fee */}
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-1">
+            <Zap className="w-3 h-3 text-amber-400" />
+            <span className="text-xs text-gray-500">Network fee</span>
+          </div>
+          <span className="text-xs text-gray-400">
+            ~{networkFee} ERG
+          </span>
+        </div>
+        
+        <div className="h-px bg-white/10" />
+        
+        {/* Recipient */}
+        <div className="flex justify-between items-start">
+          <span className="text-xs text-gray-500">To</span>
+          <div className="text-right">
+            <div className="text-sm font-medium text-white">{merchantName}</div>
+            <code className="text-xs text-gray-400 font-mono">{shortAddress}</code>
+          </div>
+        </div>
+        
+        {/* Preview Notice */}
+        <div className="pt-2 border-t border-white/5">
+          <p className="text-xs text-gray-500 text-center italic">
+            Preview only — Final details shown in wallet before signing
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ===========================================
 // Main Component
 // ===========================================
 
-const SigmaPayWidget = () => {
+const SigmaPayWidget: React.FC<SigmaPayWidgetProps> = ({ paymentIntent }) => {
   const { isConnected, wallet, connect, isConnecting } = useWallet();
   
-  // Payment state
+  // ===========================================
+  // Determine if we're in "intent mode" (locked) or "manual mode"
+  // ===========================================
+  const isIntentMode = !!paymentIntent;
+  
+  // Effective recipient and merchant (from intent or defaults)
+  const effectiveRecipient = isIntentMode ? paymentIntent.recipientAddress : MERCHANT_ADDRESS;
+  const effectiveMerchantName = isIntentMode ? paymentIntent.merchantName : MERCHANT_NAME;
+  
+  // Payment state (only used in manual mode)
   const [paymentState, setPaymentState] = useState<PaymentState>({
     asset: "SigUSD", // Default to SigUSD as per requirements
     amount: "",
     usdEquivalent: null,
     loadingPrice: false,
     priceError: false
+  });
+  
+  // Invoice state (for expiry tracking)
+  const [invoiceState, setInvoiceState] = useState<InvoiceState>({
+    expired: false,
+    timeRemaining: null
   });
   
   // Flow state
@@ -514,6 +724,58 @@ const SigmaPayWidget = () => {
   
   // Price cache
   const [prices, setPrices] = useState<PriceData | null>(null);
+
+  // ===========================================
+  // Initialize from Payment Intent
+  // ===========================================
+  
+  useEffect(() => {
+    if (isIntentMode && paymentIntent) {
+      // Set payment state from intent
+      setPaymentState(prev => ({
+        ...prev,
+        asset: paymentIntent.asset,
+        amount: paymentIntent.amount.toString()
+      }));
+      
+      // Initialize expiry countdown if exists
+      if (paymentIntent.expiresAt) {
+        const now = Math.floor(Date.now() / 1000);
+        const remaining = paymentIntent.expiresAt - now;
+        
+        if (remaining <= 0) {
+          setInvoiceState({ expired: true, timeRemaining: 0 });
+        } else {
+          setInvoiceState({ expired: false, timeRemaining: remaining });
+        }
+      }
+    }
+  }, [paymentIntent, isIntentMode]);
+
+  // ===========================================
+  // Expiry Countdown Timer
+  // ===========================================
+  
+  useEffect(() => {
+    // Only run if we have an expiry time and not already expired
+    if (!isIntentMode || !paymentIntent?.expiresAt || invoiceState.expired) {
+      return;
+    }
+    
+    const timer = setInterval(() => {
+      const now = Math.floor(Date.now() / 1000);
+      const remaining = paymentIntent.expiresAt! - now;
+      
+      if (remaining <= 0) {
+        setInvoiceState({ expired: true, timeRemaining: 0 });
+        clearInterval(timer);
+      } else {
+        setInvoiceState(prev => ({ ...prev, timeRemaining: remaining }));
+      }
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [isIntentMode, paymentIntent?.expiresAt, invoiceState.expired]);
 
   // ===========================================
   // Price Fetching
@@ -558,23 +820,39 @@ const SigmaPayWidget = () => {
   // ===========================================
 
   const handleAssetChange = useCallback((asset: PaymentAsset) => {
+    // Disabled in intent mode
+    if (isIntentMode) return;
+    
     setPaymentState(prev => ({ 
       ...prev, 
       asset,
       // Reset USD equivalent to trigger recalculation
       usdEquivalent: null 
     }));
-  }, []);
+  }, [isIntentMode]);
 
   const handleAmountChange = useCallback((value: string) => {
+    // Disabled in intent mode
+    if (isIntentMode) return;
+    
     // Allow only valid numeric input
     if (value === '' || /^\d*\.?\d*$/.test(value)) {
       setPaymentState(prev => ({ ...prev, amount: value }));
     }
-  }, []);
+  }, [isIntentMode]);
 
   const handlePay = async () => {
-    const { amount, asset } = paymentState;
+    // Block payment if invoice expired
+    if (isIntentMode && invoiceState.expired) {
+      setErrorMessage('This invoice has expired. Please request a new one.');
+      setStatus('error');
+      return;
+    }
+    
+    // Use intent values if in intent mode, otherwise use manual state
+    const amount = isIntentMode ? paymentIntent!.amount.toString() : paymentState.amount;
+    const asset = isIntentMode ? paymentIntent!.asset : paymentState.asset;
+    const recipient = effectiveRecipient;
     
     // Validation
     if (!amount || isNaN(Number(amount)) || Number(amount) < MIN_PAYMENT_AMOUNT) {
@@ -589,7 +867,7 @@ const SigmaPayWidget = () => {
       return;
     }
 
-    if (paymentState.loadingPrice || paymentState.usdEquivalent === null) {
+    if (!isIntentMode && (paymentState.loadingPrice || paymentState.usdEquivalent === null)) {
       setErrorMessage('Please wait for price to load');
       setStatus('error');
       return;
@@ -604,7 +882,7 @@ const SigmaPayWidget = () => {
       // Note: Token transfer requires different transaction building
       const result = await sendErgoPayment(
         wallet.api, 
-        MERCHANT_ADDRESS, 
+        recipient, 
         Number(amount)
         // TODO: Add token ID for SigUSD transfers
       );
@@ -616,10 +894,11 @@ const SigmaPayWidget = () => {
       try {
         await axios.post(`${API_BASE_URL}/payments/verify`, {
           txId: result.txId,
-          merchantAddress: MERCHANT_ADDRESS,
+          merchantAddress: recipient,
           expectedAmountErg: asset === "ERG" ? Number(amount) : undefined,
           expectedAmountSigUSD: asset === "SigUSD" ? Number(amount) : undefined,
-          asset
+          asset,
+          intentId: isIntentMode ? paymentIntent!.intentId : undefined
         });
       } catch {
         // Backend verification may fail if TX not yet confirmed
@@ -639,35 +918,62 @@ const SigmaPayWidget = () => {
   };
 
   const handleReset = useCallback(() => {
-    setPaymentState(prev => ({
-      ...prev,
-      amount: '',
-      usdEquivalent: null
-    }));
-    setStatus('idle');
-    setTxId('');
-    setErrorMessage('');
-  }, []);
+    // In intent mode, don't clear the amount/asset
+    if (isIntentMode) {
+      setStatus('idle');
+      setTxId('');
+      setErrorMessage('');
+    } else {
+      setPaymentState(prev => ({
+        ...prev,
+        amount: '',
+        usdEquivalent: null
+      }));
+      setStatus('idle');
+      setTxId('');
+      setErrorMessage('');
+    }
+  }, [isIntentMode]);
 
   // ===========================================
   // Derived State
   // ===========================================
+  
+  // Get current values (from intent or manual)
+  const currentAmount = isIntentMode ? paymentIntent!.amount.toString() : paymentState.amount;
+  const currentAsset = isIntentMode ? paymentIntent!.asset : paymentState.asset;
 
   const isPayButtonDisabled = useMemo(() => {
-    const { amount, loadingPrice, usdEquivalent } = paymentState;
+    // Check for invoice expiry first
+    if (isIntentMode && invoiceState.expired) {
+      return true;
+    }
+    
+    const amount = isIntentMode ? paymentIntent!.amount.toString() : paymentState.amount;
     const numAmount = Number(amount);
     
+    // In intent mode, skip price loading checks (amount is fixed)
+    if (isIntentMode) {
+      return (
+        status !== 'idle' ||
+        !amount ||
+        isNaN(numAmount) ||
+        numAmount < MIN_PAYMENT_AMOUNT
+      );
+    }
+    
+    // Manual mode - full validation
     return (
       status !== 'idle' ||
       !amount ||
       isNaN(numAmount) ||
       numAmount < MIN_PAYMENT_AMOUNT ||
-      loadingPrice ||
-      usdEquivalent === null
+      paymentState.loadingPrice ||
+      paymentState.usdEquivalent === null
     );
-  }, [paymentState, status]);
+  }, [paymentState, status, isIntentMode, invoiceState.expired, paymentIntent]);
 
-  const currentAssetConfig = ASSET_CONFIG[paymentState.asset];
+  const currentAssetConfig = ASSET_CONFIG[currentAsset];
 
   // ===========================================
   // Render
@@ -686,15 +992,22 @@ const SigmaPayWidget = () => {
       {/* Glass Card */}
       <div className="relative bg-ergo-card/70 backdrop-blur-xl border border-white/10 p-8 rounded-2xl shadow-2xl">
         
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
-            SigmaPay Checkout
-          </h2>
-          <p className="text-gray-500 text-sm mt-2">
-            Secure, non-custodial payment
-          </p>
-        </div>
+        {/* Header - Only show in manual mode */}
+        {!isIntentMode && (
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+              SigmaPay Checkout
+            </h2>
+            <p className="text-gray-500 text-sm mt-2">
+              Secure, non-custodial payment
+            </p>
+          </div>
+        )}
+        
+        {/* Invoice Header - Only show in intent mode */}
+        {isIntentMode && paymentIntent && (
+          <InvoiceHeader intent={paymentIntent} invoiceState={invoiceState} />
+        )}
 
         <AnimatePresence mode="wait">
           {/* ===========================================
@@ -790,7 +1103,7 @@ const SigmaPayWidget = () => {
               
               <h3 className="text-2xl font-bold text-white mb-2">Payment Sent!</h3>
               <p className="text-gray-400 text-sm mb-2">
-                {paymentState.amount} {paymentState.asset} has been sent.
+                {currentAmount} {currentAsset} has been sent.
               </p>
               {paymentState.usdEquivalent && (
                 <p className="text-gray-500 text-xs mb-6">
@@ -869,115 +1182,145 @@ const SigmaPayWidget = () => {
               exit="exit"
               className="space-y-6"
             >
-              {/* Asset Selection */}
-              <AssetSelector
-                selectedAsset={paymentState.asset}
-                onAssetChange={handleAssetChange}
-                disabled={status !== 'idle'}
-              />
-
-              {/* Amount Input */}
-              <div className="space-y-2">
-                <label className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
-                  Amount ({paymentState.asset})
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={paymentState.amount}
-                    onChange={(e) => handleAmountChange(e.target.value)}
-                    placeholder="0.00"
-                    disabled={status !== 'idle'}
-                    className="
-                      w-full bg-ergo-dark/70 
-                      border border-white/10 rounded-xl 
-                      px-4 py-4 pr-24 text-2xl font-mono
-                      placeholder:text-gray-600
-                      focus:outline-none focus:border-ergo-main focus:ring-1 focus:ring-ergo-main
-                      transition-all
-                      disabled:opacity-50 disabled:cursor-not-allowed
-                    "
-                    style={{ color: '#070606ff' }}
-                  />
-                  <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                    <span className="text-gray-500 font-bold">{paymentState.asset}</span>
-                    {currentAssetConfig.icon && (
-                      <div className="text-gray-500">
-                        {currentAssetConfig.icon}
-                      </div>
-                    )}
+              {/* Expired State - Block payment in intent mode */}
+              {isIntentMode && invoiceState.expired ? (
+                <div className="text-center py-6">
+                  <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="w-8 h-8 text-red-400" />
                   </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Invoice Expired</h3>
+                  <p className="text-gray-400 text-sm mb-4">
+                    This payment request has expired. Please request a new invoice from the merchant.
+                  </p>
                 </div>
-                
-                {/* USD Equivalent */}
-                <UsdDisplay
-                  amount={paymentState.amount}
-                  usdEquivalent={paymentState.usdEquivalent}
-                  loading={paymentState.loadingPrice}
-                  error={paymentState.priceError}
-                />
-              </div>
+              ) : (
+                <>
+                  {/* Asset Selection - Only show in manual mode */}
+                  {!isIntentMode && (
+                    <AssetSelector
+                      selectedAsset={paymentState.asset}
+                      onAssetChange={handleAssetChange}
+                      disabled={status !== 'idle'}
+                    />
+                  )}
 
-              {/* Recipient Display - Shows where funds are going */}
-              <RecipientDisplay 
-                address={MERCHANT_ADDRESS}
-                merchantName={MERCHANT_NAME}
-              />
+                  {/* Amount Input - Only show in manual mode */}
+                  {!isIntentMode && (
+                    <div className="space-y-2">
+                      <label className="text-xs uppercase tracking-wider text-gray-500 font-semibold">
+                        Amount ({paymentState.asset})
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={paymentState.amount}
+                          onChange={(e) => handleAmountChange(e.target.value)}
+                          placeholder="0.00"
+                          disabled={status !== 'idle'}
+                          className="
+                            w-full bg-ergo-dark/70 
+                            border border-white/10 rounded-xl 
+                            px-4 py-4 pr-24 text-2xl font-mono
+                            placeholder:text-gray-600
+                            focus:outline-none focus:border-ergo-main focus:ring-1 focus:ring-ergo-main
+                            transition-all
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                          "
+                          style={{ color: '#ffffff' }}
+                        />
+                        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                          <span className="text-gray-500 font-bold">{paymentState.asset}</span>
+                          {currentAssetConfig.icon && (
+                            <div className="text-gray-500">
+                              {currentAssetConfig.icon}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* USD Equivalent */}
+                      <UsdDisplay
+                        amount={paymentState.amount}
+                        usdEquivalent={paymentState.usdEquivalent}
+                        loading={paymentState.loadingPrice}
+                        error={paymentState.priceError}
+                      />
+                    </div>
+                  )}
 
-              {/* Progress Steps (only show when processing) */}
-              {status !== 'idle' && (
-                <ProgressStepper status={status} />
+                  {/* Transaction Preview - Always show before payment */}
+                  <TransactionPreview
+                    asset={currentAsset}
+                    amount={currentAmount || '0'}
+                    recipientAddress={effectiveRecipient}
+                    merchantName={effectiveMerchantName}
+                    networkFee={ESTIMATED_NETWORK_FEE}
+                  />
+
+                  {/* Recipient Display - Only show in manual mode (intent mode has it in preview) */}
+                  {!isIntentMode && (
+                    <RecipientDisplay 
+                      address={effectiveRecipient}
+                      merchantName={effectiveMerchantName}
+                    />
+                  )}
+
+                  {/* Progress Steps (only show when processing) */}
+                  {status !== 'idle' && (
+                    <ProgressStepper status={status} />
+                  )}
+
+                  {/* Pay Button */}
+                  <motion.button
+                    onClick={handlePay}
+                    disabled={isPayButtonDisabled}
+                    whileHover={!isPayButtonDisabled ? { scale: 1.02 } : {}}
+                    whileTap={!isPayButtonDisabled ? { scale: 0.98 } : {}}
+                    className="
+                      w-full py-4
+                      bg-gradient-to-r from-ergo-main to-orange-500
+                      hover:from-orange-500 hover:to-ergo-main
+                      text-white font-bold text-lg rounded-xl
+                      shadow-lg shadow-orange-900/30
+                      transition-all duration-300
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      disabled:hover:from-ergo-main disabled:hover:to-orange-500
+                      flex items-center justify-center gap-3
+                    "
+                  >
+                    {status === 'signing' ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Confirm in Wallet...</span>
+                      </>
+                    ) : status === 'verifying' ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>Verifying...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Pay {currentAmount || '0'} {currentAsset}</span>
+                        <ArrowRight className="w-5 h-5" />
+                      </>
+                    )}
+                  </motion.button>
+
+                  {/* Helper Text */}
+                  <p className="text-center text-xs text-gray-500">
+                    Final transaction details are shown in your wallet before signing
+                  </p>
+
+                  {/* Non-Custodial Notice */}
+                  <div className="flex items-center justify-center gap-2 pt-2 border-t border-white/5">
+                    <Lock className="w-3 h-3 text-green-500" />
+                    <p className="text-xs text-gray-500">
+                      Funds never leave your wallet until you sign the transaction
+                    </p>
+                  </div>
+                </>
               )}
-
-              {/* Pay Button */}
-              <motion.button
-                onClick={handlePay}
-                disabled={isPayButtonDisabled}
-                whileHover={!isPayButtonDisabled ? { scale: 1.02 } : {}}
-                whileTap={!isPayButtonDisabled ? { scale: 0.98 } : {}}
-                className="
-                  w-full py-4
-                  bg-gradient-to-r from-ergo-main to-orange-500
-                  hover:from-orange-500 hover:to-ergo-main
-                  text-white font-bold text-lg rounded-xl
-                  shadow-lg shadow-orange-900/30
-                  transition-all duration-300
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  disabled:hover:from-ergo-main disabled:hover:to-orange-500
-                  flex items-center justify-center gap-3
-                "
-              >
-                {status === 'signing' ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Confirm in Wallet...</span>
-                  </>
-                ) : status === 'verifying' ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Verifying...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Pay {paymentState.amount || '0'} {paymentState.asset}</span>
-                    <ArrowRight className="w-5 h-5" />
-                  </>
-                )}
-              </motion.button>
-
-              {/* Helper Text */}
-              <p className="text-center text-xs text-gray-500">
-                Final amount confirmed in wallet before signing
-              </p>
-
-              {/* Non-Custodial Notice */}
-              <div className="flex items-center justify-center gap-2 pt-2 border-t border-white/5">
-                <Lock className="w-3 h-3 text-green-500" />
-                <p className="text-xs text-gray-500">
-                  Funds never leave your wallet until you sign the transaction
-                </p>
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
