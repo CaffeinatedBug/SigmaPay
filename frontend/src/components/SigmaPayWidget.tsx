@@ -1227,7 +1227,7 @@ const SigmaPayWidget: React.FC<SigmaPayWidgetProps> = ({ paymentIntent }) => {
                             transition-all
                             disabled:opacity-50 disabled:cursor-not-allowed
                           "
-                          style={{ color: '#ffffff' }}
+                          style={{ color: '#000000ff' }}
                         />
                         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
                           <span className="text-gray-500 font-bold">{paymentState.asset}</span>
