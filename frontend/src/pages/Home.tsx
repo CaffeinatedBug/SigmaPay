@@ -9,9 +9,13 @@ import {
   ArrowRight, 
   CheckCircle2,
   Lock,
-  Coins,
-  RefreshCw
+  Coins
 } from "lucide-react";
+
+// Import step screenshots
+import step1Image from "../../Images/step1.png";
+import step2Image from "../../Images/step2.png";
+import step3Image from "../../Images/step3.png";
 
 const Hero = () => {
   return (
@@ -127,12 +131,14 @@ const TimelineContent = ({
   icon: Icon, 
   title, 
   description, 
-  features 
+  features,
+  imageSrc 
 }: { 
   icon: React.ElementType;
   title: string;
   description: string;
   features: string[];
+  imageSrc?: string;
 }) => (
   <div className="space-y-6">
     <div className="flex items-start gap-4">
@@ -159,16 +165,19 @@ const TimelineContent = ({
       ))}
     </div>
     
-    {/* Image placeholder */}
-    <div className="mt-6 rounded-xl bg-secondary border border-border overflow-hidden">
-      <div className="h-48 md:h-64 flex items-center justify-center relative">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent" />
-        <div className="text-center z-10">
-          <RefreshCw className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
-          <span className="text-sm text-muted-foreground">Screenshot placeholder</span>
+    {/* Screenshot Image - Portrait Mode */}
+    {imageSrc && (
+      <div className="mt-6 flex justify-center">
+        <div className="inline-block rounded-xl bg-secondary border border-border overflow-hidden p-4 md:p-1">
+          <img 
+            src={imageSrc} 
+            alt={title}
+            className="max-w-sm rounded-lg shadow-lg object-contain"
+            style={{ maxHeight: '600px', display: 'block' }}
+          />
         </div>
       </div>
-    </div>
+    )}
   </div>
 );
 
@@ -186,6 +195,7 @@ const timelineData = [
           "Full control of your private keys",
           "Support for ERG and SigUSD tokens"
         ]}
+        imageSrc={step1Image}
       />
     ),
   },
@@ -202,6 +212,7 @@ const timelineData = [
           "Automatic confirmation tracking",
           "Zero-knowledge payment verification"
         ]}
+        imageSrc={step2Image}
       />
     ),
   },
@@ -218,6 +229,7 @@ const timelineData = [
           "Zero counterparty risk",
           "Full transaction transparency"
         ]}
+        imageSrc={step3Image}
       />
     ),
   },
