@@ -285,7 +285,7 @@ export default function CheckoutPage() {
                   <div className="flex flex-wrap gap-4">
                     <div className="px-4 py-2 rounded-lg bg-secondary/50 border border-border">
                       <span className="text-xs text-muted-foreground">URL</span>
-                      <p className="font-mono text-primary text-sm">https://sigmapay-backend.onrender.com/api/payments/verify</p>
+                      <p className="font-mono text-primary text-sm">https://sigmapay.onrender.com/api/payments/verify</p>
                     </div>
                     <div className="px-4 py-2 rounded-lg bg-secondary/50 border border-border">
                       <span className="text-xs text-muted-foreground">Method</span>

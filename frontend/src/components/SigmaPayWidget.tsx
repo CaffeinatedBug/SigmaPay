@@ -52,7 +52,7 @@ const MERCHANT_ADDRESS = "9hA8MkqGy78oG84S94K74vWvP58gC465e9d48b79";
 const MERCHANT_NAME = "SigmaPay Demo Merchant";
 
 /** Backend API base URL */
-const API_BASE_URL = "http://localhost:3000/api";
+const API_BASE_URL = "https://sigmapay.onrender.com";
 
 /** SigUSD Token ID on Ergo mainnet - used for token transfers */
 export const SIGUSD_TOKEN_ID = "03faf2cb329f2e90d6d23b58d91bbb6c046aa143261cc21f52fbe2824bfcbf04";

@@ -278,7 +278,7 @@ const Home = () => {
       <footer className="py-8 border-t border-border">
         <div className="container mx-auto px-6 text-center">
           <p className="text-sm text-muted-foreground">
-            © 2024 SigmaPay. Built on Ergo Blockchain.
+            © 2025 SigmaPay. Built on Ergo Blockchain.
           </p>
         </div>
       </footer>
