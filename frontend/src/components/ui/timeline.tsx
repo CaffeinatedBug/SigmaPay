@@ -17,11 +17,21 @@ export const Timeline = ({ data }: { data: TimelineEntry[] }) => {
   const [height, setHeight] = useState(0);
 
   useEffect(() => {
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      setHeight(rect.height);
-    }
-  }, [ref]);
+    if (!ref.current) return;
+    const updateHeight = () => {
+      setHeight(ref.current!.getBoundingClientRect().height);
+    };
+    updateHeight();
+    // Use ResizeObserver for dynamic content
+    const resizeObserver = new window.ResizeObserver(updateHeight);
+    resizeObserver.observe(ref.current);
+    // Also update on window resize
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, []);
 
   const { scrollYProgress } = useScroll({
     target: containerRef,
