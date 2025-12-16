@@ -1,4 +1,4 @@
-# SigmaPay Backend
+# SigmaPay
 
 > Non-custodial payment gateway for the Ergo Blockchain
 
